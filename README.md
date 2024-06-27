@@ -59,3 +59,22 @@ createBatch(() => {
 
 cleanup();
 ```
+
+```typescript
+import { createSignal, createEffect, createBatch } from "signal";
+
+const [getFlag, setFlag] = createSignal(true);
+const [getString, setString] = createSignal("Hello World!");
+
+const cleanup = createEffect(() => {
+  if (getFlag()) {
+    console.log(getString());
+  }
+}); // Hello World!
+
+setFlag(false);
+setString("Hello Signal!");
+setFlag(true); // Hello Signal!
+
+cleanup();
+```
