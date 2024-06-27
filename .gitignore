@@ -1,0 +1,9 @@
+# dist
+dist/
+
+# dependencies
+node_modules/
+.pnpm-store/
+
+# misc
+.DS_Store

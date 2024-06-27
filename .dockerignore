@@ -1,0 +1,14 @@
+# dist
+dist/
+
+# dependencies
+node_modules/
+.pnpm-store/
+
+# editor
+.devcontainer/
+.vscode/
+
+# misc
+.DS_Store
+*.md
