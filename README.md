@@ -50,16 +50,12 @@ const [getString2, setString2] = createSignal("World");
 
 const cleanup = createEffect(() => {
   console.log(`${getString1()} ${getString2()}!`);
-});
+}); // Hello World!
 
 createBatch(() => {
   setString1("Goodmorning");
   setString2("Signal");
-});
+}); // Goodmorning Signal!
 
 cleanup();
-
-// result
-// Hello World!
-// Goodmorning Signal!
 ```
