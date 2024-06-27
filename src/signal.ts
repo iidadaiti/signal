@@ -4,44 +4,30 @@ export type Signal<GetValue, SetValue extends GetValue = GetValue> = [
   Getter<GetValue>,
   Setter<SetValue>
 ];
-export type Handler = () => void;
+export type Effect = () => void;
 
 interface DataNode<Value> {
   value: Value;
-  handlers: Set<Handler>;
+  effects: Set<Effect>;
 }
 
 interface EffectNode {
-  handler: Handler;
+  effect: Effect;
+  cleanup: () => void;
   dataNodes: Set<DataNode<unknown>>;
   parentEffectNodes: Set<EffectNode>;
   childEffectNodes: Set<EffectNode>;
 }
 
+let batchContext: Set<Effect> | undefined;
 let effectNodeContext: EffectNode | undefined;
 
 function createDataNode<Value>(value: Value): DataNode<Value> {
-  const handlers = new Set<Handler>();
-  return { value: structuredClone(value), handlers };
+  const effects = new Set<Effect>();
+  return { value: structuredClone(value), effects };
 }
 
-function createCleanupEffect(effectNode: EffectNode): () => void {
-  return function cleanup() {
-    for (const dataNode of effectNode.dataNodes) {
-      dataNode.handlers.delete(effectNode.handler);
-    }
-
-    for (const childEffectNode of effectNode.childEffectNodes) {
-      createCleanupEffect(childEffectNode)();
-    }
-
-    for (const parentEffectNode of effectNode.parentEffectNodes) {
-      parentEffectNode.childEffectNodes.delete(effectNode);
-    }
-  };
-}
-
-function createEffectNode(handler: Handler): EffectNode {
+function createEffectNode(effect: Effect): EffectNode {
   const dataNodes = new Set<DataNode<unknown>>();
   const childEffectNodes = new Set<EffectNode>();
   const parentEffectNodes = new Set<EffectNode>();
@@ -49,7 +35,20 @@ function createEffectNode(handler: Handler): EffectNode {
     dataNodes,
     childEffectNodes,
     parentEffectNodes,
-    handler: () => {
+    cleanup: () => {
+      for (const dataNode of effectNode.dataNodes) {
+        dataNode.effects.delete(effectNode.effect);
+      }
+
+      for (const childEffectNode of effectNode.childEffectNodes) {
+        childEffectNode.cleanup();
+      }
+
+      for (const parentEffectNode of effectNode.parentEffectNodes) {
+        parentEffectNode.childEffectNodes.delete(effectNode);
+      }
+    },
+    effect: () => {
       if (effectNodeContext) {
         effectNodeContext.childEffectNodes.add(effectNode);
         effectNode.parentEffectNodes.add(effectNodeContext);
@@ -61,16 +60,16 @@ function createEffectNode(handler: Handler): EffectNode {
       effectNode.dataNodes.clear();
       effectNode.childEffectNodes.clear();
       effectNodeContext = effectNode;
-      handler();
+      effect();
       for (const beforeGotDataNode of beforeGotDataNodes) {
         if (!effectNode.dataNodes.has(beforeGotDataNode)) {
-          beforeGotDataNode.handlers.delete(effectNode.handler);
+          beforeGotDataNode.effects.delete(effectNode.effect);
         }
       }
 
       for (const beforeEffectNode of beforeEffectNodes) {
         if (!effectNode.childEffectNodes.has(beforeEffectNode)) {
-          createCleanupEffect(beforeEffectNode)();
+          beforeEffectNode.cleanup();
         }
       }
       effectNodeContext = beforeEffectNodeContext;
@@ -84,7 +83,7 @@ function createGetter<Value>(dataNode: DataNode<Value>): Getter<Value> {
   return function getter() {
     if (effectNodeContext) {
       effectNodeContext.dataNodes.add(dataNode);
-      dataNode.handlers.add(effectNodeContext.handler);
+      dataNode.effects.add(effectNodeContext.effect);
     }
     return structuredClone(dataNode.value);
   };
@@ -95,8 +94,12 @@ function createSetter<GetValue, SetValue extends GetValue = GetValue>(
 ): Setter<SetValue> {
   return function setter(value: SetValue) {
     dataNode.value = structuredClone(value);
-    for (const handler of dataNode.handlers) {
-      handler();
+    for (const effect of dataNode.effects) {
+      if (batchContext) {
+        batchContext.add(effect);
+      } else {
+        effect();
+      }
     }
   };
 }
@@ -116,9 +119,24 @@ export function createSignal<
   return [getter, setter];
 }
 
-export function createEffect(handler: Handler): () => void {
-  const effectNode = createEffectNode(handler);
-  effectNode.handler();
-  const cleanup = createCleanupEffect(effectNode);
-  return cleanup;
+export function createEffect(effect: Effect): () => void {
+  const effectNode = createEffectNode(effect);
+  effectNode.effect();
+  return function cleanup() {
+    effectNode.cleanup();
+  };
+}
+
+export function createBatch(fn: () => void): void {
+  const batch = batchContext ?? new Set<Effect>();
+  const beforeBatchContext = batchContext;
+  batchContext = batch;
+  fn();
+  batchContext = beforeBatchContext;
+
+  if (!beforeBatchContext) {
+    for (const effect of batch) {
+      effect();
+    }
+  }
 }
